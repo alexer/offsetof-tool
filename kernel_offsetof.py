@@ -57,7 +57,8 @@ def get_offsets(header, struct, fields):
 		_run('make')
 
 		start, flags, section, size, name = _get_symbol('offsetof.ko', 'offsets')
-		assert section == '.data', 'Expected variable to go to .data section, instead of %s - is everything ok?' % section
+		# .bss if all the offsets are zero
+		assert section in {'.data', '.bss'}, 'Expected variable to go to .data (or .bss) section, instead of %s - is everything ok?' % section
 
 		itemsize, rem = divmod(size, len(fields))
 		assert rem == 0, 'Expected array size to be divisible by field count'
