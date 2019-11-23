@@ -6,10 +6,22 @@ import re
 
 CC = os.environ.get('CC', 'cc')
 
-HEADER_TPL = '#include <%s>'
+class _TemplateGetter:
+	def __init__(self, data, mode):
+		self.data = data
+		self.mode = mode
 
-U_OFFSET_TPL = 'PRINT_OFFSETOF(%s, %s);'
-U_SOURCE_TPL = """
+	def __getattr__(self, key):
+		try:
+			return self.data[self.mode, key]
+		except KeyError:
+			return self.data[key]
+
+TPL = {}
+TPL['header'] = '#include <%s>'
+
+TPL['user', 'offset'] = 'PRINT_OFFSETOF(%s, %s);'
+TPL['user', 'source'] = """
 #include <stdio.h>
 #include <stddef.h>
 %s
@@ -23,8 +35,8 @@ int main(void)
 }
 """
 
-K_OFFSET_TPL = 'offsetof(%s, %s),'
-K_SOURCE_TPL = """
+TPL['kernel', 'offset'] = 'offsetof(%s, %s),'
+TPL['kernel', 'source'] = """
 #include <linux/init.h>
 #include <linux/module.h>
 %s
@@ -60,11 +72,15 @@ def _get_symbol(fname, name):
 	symbol, = [info for info in _get_symbols(fname) if info[-1] == name]
 	return symbol
 
-def get_user_offsets(headers, fields):
+def _get_source_data(headers, fields, mode):
+	tpl = _TemplateGetter(TPL, mode)
 	headers = [headers] if isinstance(headers, str) else headers
-	header_lines = [HEADER_TPL % header for header in headers]
-	offset_lines = [U_OFFSET_TPL % (struct, field) for struct, field in fields]
-	source_data = U_SOURCE_TPL % ('\n'.join(header_lines), '\n\t'.join(offset_lines))
+	header_lines = [tpl.header % header for header in headers]
+	offset_lines = [tpl.offset % (struct, field) for struct, field in fields]
+	return tpl.source % ('\n'.join(header_lines), '\n\t'.join(offset_lines))
+
+def get_user_offsets(headers, fields):
+	source_data = _get_source_data(headers, fields, 'user')
 
 	with tempfile.TemporaryDirectory() as path:
 		os.chdir(path)
@@ -78,10 +94,7 @@ def get_user_offsets(headers, fields):
 			yield struct, field, int(offset)
 
 def get_kernel_offsets(headers, fields):
-	headers = [headers] if isinstance(headers, str) else headers
-	header_lines = [HEADER_TPL % header for header in headers]
-	offset_lines = [K_OFFSET_TPL % (struct, field) for struct, field in fields]
-	source_data = K_SOURCE_TPL % ('\n'.join(header_lines), '\n\t'.join(offset_lines))
+	source_data = _get_source_data(headers, fields, 'kernel')
 
 	with tempfile.TemporaryDirectory() as path:
 		os.chdir(path)
