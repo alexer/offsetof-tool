@@ -152,6 +152,12 @@ def _get_source_data(headers, fields, mode):
 	offset_lines = [tpl.offset % (struct, field) for struct, field in fields]
 	return tpl.source % ('\n'.join(header_lines), '\n\t'.join(offset_lines))
 
+def _filter_offsets(offsets, fields):
+	wanted = set(fields)
+	offsets = {(struct, field): offset for struct, field, offset in offsets if (struct, field) in wanted}
+	for struct, field in fields:
+		yield struct, field, offsets[struct, field]
+
 def get_all_offsets_from_ELF(filename, structs):
 	# Do argument validation at the beginning, so that if there's a problem, we don't have to wait for the file to parse first
 	names = []
@@ -177,10 +183,7 @@ def get_all_offsets_from_ELF(filename, structs):
 def get_given_offsets_from_ELF(filename, fields):
 	_validate_fields(fields)
 	structs = {struct for struct, field in fields}
-	fields = set(fields)
-	for struct, field, offset in get_all_offsets_from_ELF(filename, structs):
-		if (struct, field) in fields:
-			yield struct, field, offset
+	yield from _filter_offsets(get_all_offsets_from_ELF(filename, structs), fields)
 
 def find_item_from_DWARF(dwarf, tag, name):
 	items = get_items_from_DWARF(dwarf, names={(tag, name)})
@@ -294,10 +297,7 @@ def get_all_offsets_elftools(headers, structs, kernel=False):
 def get_given_offsets_elftools(headers, fields, kernel=False):
 	_validate_fields(fields)
 	structs = {struct for struct, field in fields}
-	fields = set(fields)
-	for struct, field, offset in get_all_offsets_elftools(headers, list(structs), kernel):
-		if (struct, field) in fields:
-			yield struct, field, offset
+	yield from _filter_offsets(get_all_offsets_elftools(headers, list(structs), kernel), fields)
 
 def get_given_offsets(headers, fields, kernel=False):
 	if _has_elftools:
