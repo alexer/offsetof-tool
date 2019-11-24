@@ -1,0 +1,37 @@
+Offsetof is a tool (and Python library) for finding field offsets in C structs.
+
+It works for both userspace- and Linux kernel headers - though you do need to
+explicitly tell it which one you want.
+
+Currently there isn't any API documentation for the library part. (But really,
+you just need to call a single function to use it, so just take a look at main()
+and you'll be fine)
+
+[As with most software, do NOT use this with untrusted input]
+
+Requirements:
+- A C compiler
+
+Recommended:
+- pyelftools
+
+For the kernel functionality, you will also need:
+- The source for your kernel
+- make
+- pyelftools (or objdump and objcopy)
+
+Usage:
+  $ offsetof [--kernel] HEADER|ELF STRUCT [FIELD]...
+
+Examples:
+
+  $ offsetof time.h "struct timespec" tv_sec tv_nsec
+  $ offsetof --kernel linux/blkdev.h "struct request" rq_disk cmd_flags
+
+If pyelftools is installed, you can also automatically print all fields in a struct,
+or give an executable (ELF with DWARF debugging information) in place of the header:
+
+  $ offsetof time.h "struct timespec"
+  $ offsetof --kernel linux/blkdev.h "struct request"
+  $ offsetof bin/my_executable "struct request"
+
