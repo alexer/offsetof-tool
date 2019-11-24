@@ -15,11 +15,12 @@ default:
 endif
 """
 
+HEADER_TPL = '#include <%s>'
 OFFSET_TPL = 'offsetof(%s, %s),'
 SOURCE_TPL = """
 #include <linux/init.h>
 #include <linux/module.h>
-#include <%s>
+%s
 MODULE_LICENSE("GPL");
 
 size_t offsets[] = {
@@ -41,9 +42,11 @@ def _get_symbol(fname, name):
 	symbol, = [info for info in _get_symbols(fname) if info[-1] == name]
 	return symbol
 
-def get_offsets(header, struct, fields):
-	offset_lines = [OFFSET_TPL % (struct, field) for field in fields]
-	source_data = SOURCE_TPL % (header, '\n\t'.join(offset_lines))
+def get_offsets(headers, fields):
+	headers = [headers] if isinstance(headers, str) else headers
+	header_lines = [HEADER_TPL % header for header in headers]
+	offset_lines = [OFFSET_TPL % (struct, field) for struct, field in fields]
+	source_data = SOURCE_TPL % ('\n'.join(header_lines), '\n\t'.join(offset_lines))
 
 	with tempfile.TemporaryDirectory() as path:
 		os.chdir(path)
@@ -68,15 +71,15 @@ def get_offsets(header, struct, fields):
 		with open('offsetof.bin', 'rb') as f:
 			data = f.read()
 
-		for i, field in enumerate(fields):
+		for i, (struct, field) in enumerate(fields):
 			pos = start + i * itemsize
-			yield field, int.from_bytes(data[pos:pos+itemsize], sys.byteorder)
+			yield struct, field, int.from_bytes(data[pos:pos+itemsize], sys.byteorder)
 
 def main():
 	header, struct, *fields = sys.argv[1:]
 
 	try:
-		for field, offset in get_offsets(header, struct, fields):
+		for struct, field, offset in get_offsets(header, [(struct, field) for field in fields]):
 			print(field, offset)
 	except subprocess.CalledProcessError as err:
 		print('\nSTDOUT:\n' + err.output.decode('utf-8'), file=sys.stderr)

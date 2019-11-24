@@ -6,32 +6,55 @@ KIND2TAG = {
 	'typedef': 'DW_TAG_typedef',
 }
 
-def get_offsets_from_ELF(filename, struct):
-	kind, name = 'typedef', struct
-	if ' ' in name:
-		kind, name = struct.split(' ')
-	tag = KIND2TAG[kind]
+def get_offsets_from_ELF(filename, structs):
+	# Do argument validation at the beginning, so that if there's a problem, we don't have to wait for the file to parse first
+	names = []
+	for struct in structs:
+		kind, name = 'typedef', struct
+		if ' ' in struct:
+			kind, name = name.split(' ')
+		names.append((KIND2TAG[kind], name.encode('ascii')))
+
 	with open(filename, 'rb') as f:
 		elffile = ELFFile(f)
 
 		dwarf = elffile.get_dwarf_info()
-		item_cu, item_die = find_item_from_DWARF(dwarf, tag, name.encode('ascii'))
-		offset2die = {die.offset: die for die in item_cu.iter_DIEs()}
-		if kind == 'typedef':
-			item_die = offset2die[item_die.attributes['DW_AT_type'].value]
-		yield from get_offsets_from_DIE(item_die, offset2die)
+		items = get_items_from_DWARF(dwarf, names=set(names))
+		cus = {cu for cu, item in items.values()}
+		cu2offset2die = {cu: {die.offset: die for die in cu.iter_DIEs()} for cu in cus}
+		for struct, (kind, value) in zip(structs, names):
+			cu, item = items[kind, value]
+			offset2die = cu2offset2die[cu]
+			if kind == 'typedef':
+				item = offset2die[item.attributes['DW_AT_type'].value]
+			for field, offset in get_offsets_from_DIE(item, offset2die):
+				yield struct, field, offset
 
 def find_item_from_DWARF(dwarf, tag, name):
+	items = get_items_from_DWARF(dwarf, names={(tag, name)})
+	if items:
+		item, = items.values()
+		return item
+
+def get_items_from_DWARF(dwarf, tags=None, names=None):
+	assert bool(tags) != bool(names), 'Must give either tags or names (but not both)'
+	if names:
+		tags = {tag for tag, name in names}
+
+	found = {}
 	for cu in dwarf.iter_CUs():
 		die = cu.get_top_DIE()
 		for child in die.iter_children():
-			if child.tag != tag:
+			if child.tag not in tags:
 				continue
 			attr = child.attributes.get('DW_AT_name')
 			if attr is None:
 				continue
-			if attr.value == name:
-				return cu, child
+			name = (child.tag, attr.value)
+			if names is None or name in names:
+				assert name not in found, 'Duplicate DWARF item'
+				found[name] = (cu, child)
+	return found
 
 def get_offsets_from_DIE(die, offset2die, start=0):
 	assert die.tag in {'DW_TAG_structure_type', 'DW_TAG_union_type'}, 'Unhandled main type: ' + die.tag
@@ -57,7 +80,7 @@ def main():
 
 	filename, struct = sys.argv[1:]
 
-	for field, offset in get_offsets_from_ELF(filename, struct):
+	for struct, field, offset in get_offsets_from_ELF(filename, [struct]):
 		print(field, offset)
 
 if __name__ == '__main__':
