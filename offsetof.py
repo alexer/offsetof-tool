@@ -112,7 +112,40 @@ def _get_symbol(fname, name):
 	symbol, = [info for info in _get_symbols(fname) if info[-1] == name]
 	return symbol
 
+def _validate_chars(value, extra, error):
+	try:
+		value.encode('ascii')
+	except UnicodeEncodeError:
+		valid = False
+	else:
+		value = ''.join(set(value) - set(extra))
+		valid = value.isalnum()
+	if not valid:
+		raise ValueError(error)
+
+def _validate_hpath(value):
+	_validate_chars(value, '_{}[]#()<%:;.?*+-/^&|~!=,"', 'Invalid header path')
+
+def _validate_id(value):
+	_validate_chars(value, '_', 'Invalid C identifier')
+
+def _validate_struct(struct):
+	kind, name = 'typedef', struct
+	if ' ' in struct:
+		kind, name = struct.split(' ', 1)
+		if kind not in {'struct', 'union'}:
+			raise ValueError('Not a struct or union')
+	_validate_id(name)
+	return kind, name
+
+def _validate_fields(values):
+	for struct, field in values:
+		_validate_struct(struct)
+		_validate_id(field)
+
 def _get_source_data(headers, fields, mode):
+	_validate_hpath(headers)
+	_validate_fields(fields)
 	tpl = _TemplateGetter(TPL, mode)
 	headers = [headers] if isinstance(headers, str) else headers
 	header_lines = [tpl.header % header for header in headers]
@@ -123,9 +156,7 @@ def get_all_offsets_from_ELF(filename, structs):
 	# Do argument validation at the beginning, so that if there's a problem, we don't have to wait for the file to parse first
 	names = []
 	for struct in structs:
-		kind, name = 'typedef', struct
-		if ' ' in struct:
-			kind, name = name.split(' ')
+		kind, name = _validate_struct(struct)
 		names.append((KIND2TAG[kind], name.encode('ascii')))
 
 	with open(filename, 'rb') as f:
@@ -144,6 +175,7 @@ def get_all_offsets_from_ELF(filename, structs):
 				yield struct, field, offset
 
 def get_given_offsets_from_ELF(filename, fields):
+	_validate_fields(fields)
 	structs = {struct for struct, field in fields}
 	fields = set(fields)
 	for struct, field, offset in get_all_offsets_from_ELF(filename, structs):
@@ -260,6 +292,7 @@ def get_all_offsets_elftools(headers, structs, kernel=False):
 		yield from get_all_offsets_from_ELF('offsetof.ko', structs)
 
 def get_given_offsets_elftools(headers, fields, kernel=False):
+	_validate_fields(fields)
 	structs = {struct for struct, field in fields}
 	fields = set(fields)
 	for struct, field, offset in get_all_offsets_elftools(headers, list(structs), kernel):
